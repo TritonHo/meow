@@ -1,25 +1,36 @@
 package middleware
 
 import (
+	"bytes"
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"time"
 
-	//	"log"
+	"framework-demo/lib/lock"
 
 	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/go-xorm/xorm"
 	"github.com/gorilla/mux"
+	redis "gopkg.in/redis.v3"
+)
+
+const (
+	DOUBLE_DETECTION_PERIOD = time.Second * 10
+	MAX_PROCESS_TIME        = time.Second * 5
 )
 
 var (
-	db *xorm.Engine
+	db          *xorm.Engine
+	redisClient *redis.Client
 )
 
-func Init(database *xorm.Engine) {
+func Init(database *xorm.Engine, client *redis.Client) {
 	db = database
+	redisClient = client
 }
 
 type HandlerWithTx func(r *http.Request, urlValues map[string]string, session *xorm.Session, userId string) (statusCode int, err error, output interface{})
@@ -32,14 +43,59 @@ type DeleteHandler func(urlValues map[string]string, session *xorm.Session, user
 func send(res http.ResponseWriter, statusCode int, data interface{}) {
 	res.Header().Set("Content-Type", "application/json; charset=utf-8")
 	res.WriteHeader(statusCode)
-	json.NewEncoder(res).Encode(data)
+	if d, ok := data.([]byte); ok {
+		res.Write(d)
+	} else {
+		json.NewEncoder(res).Encode(data)
+	}
+}
+
+type cachedResponse struct {
+	StatusCode int
+	Err        error
+	Output     []byte
 }
 
 func DoublePostIntercept(f PostHandler) HandlerWithTx {
 	return func(r *http.Request, urlValues map[string]string, session *xorm.Session, userId string) (int, error, interface{}) {
 		//FIXME: implement the double request checking
 
-		return f(r.Body, urlValues, session, userId)
+		// split the input stream into two
+		buffer := new(bytes.Buffer)
+		tee := io.TeeReader(r.Body, buffer)
+
+		//perform hashing on one of the stream
+		h := md5.New()
+		io.Copy(h, tee)
+		md5Hash := hex.EncodeToString(h.Sum(nil))
+
+		//the key is request userId + requestUrl + method + hash of request body
+		lockName := userId + `-` + r.URL.Path + `-` + r.Method + `-` + md5Hash + `-LOCK`
+		resultName := userId + `-` + r.URL.Path + `-` + r.Method + `-` + md5Hash + `-RESULT`
+
+		//ensure that in case of double request, only one thread can get processed
+		if ok, err := lock.AcquireLock(lockName, MAX_PROCESS_TIME, MAX_PROCESS_TIME); err != nil {
+			return http.StatusInternalServerError, err, nil
+		} else if ok == false {
+			return http.StatusConflict, err, nil
+		}
+		defer lock.ReleaseLock(lockName)
+
+		if b, err := redisClient.Get(resultName).Bytes(); err != nil && err != redis.Nil {
+			return http.StatusInternalServerError, err, nil
+		} else if err != redis.Nil {
+			c := cachedResponse{}
+			json.Unmarshal(b, &c)
+			return c.StatusCode, c.Err, c.Output
+		}
+
+		statusCode, err, output := f(buffer, urlValues, session, userId)
+		outputBytes, _ := json.Marshal(output)
+		c := cachedResponse{StatusCode: statusCode, Err: err, Output: outputBytes}
+		b, _ := json.Marshal(c)
+		redisClient.Set(resultName, b, DOUBLE_DETECTION_PERIOD).Result()
+
+		return statusCode, err, output
 	}
 }
 

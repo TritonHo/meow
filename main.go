@@ -11,6 +11,7 @@ import (
 	"framework-demo/handler"
 	"framework-demo/lib/config"
 	"framework-demo/lib/httputil"
+	"framework-demo/lib/lock"
 	"framework-demo/lib/middleware"
 	"framework-demo/setting"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/go-xorm/xorm"
 	"github.com/gorilla/mux"
 	_ "github.com/lib/pq"
+	redis "gopkg.in/redis.v3"
 )
 
 func main() {
@@ -68,10 +70,26 @@ func initDependency() {
 	// db.ShowSQL = true
 	// db.ShowErr = true
 
+	//setup the redis
+	redisOptions := redis.Options{
+		Addr:     config.GetStr(setting.REDIS_ENDPOINT),
+		PoolSize: config.GetInt(setting.REDIS_POOL_SIZE),
+		Network:  "tcp",
+
+		//FIXME: check the purpose of these timeout
+		DialTimeout:  5 * time.Second,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 5 * time.Second,
+	}
+	redisClient := redis.NewClient(&redisOptions)
+
 	httputil.Init(xormCore.SnakeMapper{})
 
 	//add the db dependency to middleware module
-	middleware.Init(db)
+	middleware.Init(db, redisClient)
+
+	//add the redis dependency to lock module
+	lock.Init(redisClient)
 }
 
 func showDevAuth() {
