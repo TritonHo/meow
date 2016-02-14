@@ -52,14 +52,15 @@ func send(res http.ResponseWriter, statusCode int, data interface{}) {
 
 type cachedResponse struct {
 	StatusCode int
-	Err        error
+	//since golang doesn't have same OOP concept as java
+	//thus it is impossible to perfrom serialization of generic error object and then and deserialize back into the same error object
+	//And We used a string to store the error message
+	ErrMessage *string
 	Output     []byte
 }
 
 func DoublePostIntercept(f PostHandler) HandlerWithTx {
 	return func(r *http.Request, urlValues map[string]string, session *xorm.Session, userId string) (int, error, interface{}) {
-		//FIXME: implement the double request checking
-
 		// split the input stream into two
 		buffer := new(bytes.Buffer)
 		tee := io.TeeReader(r.Body, buffer)
@@ -81,17 +82,29 @@ func DoublePostIntercept(f PostHandler) HandlerWithTx {
 		}
 		defer lock.ReleaseLock(lockName)
 
+		//after entering the critical zone, check if it is a duplicated request
+		//if yes, then use the previous output stored in redis, and then do nothing
 		if b, err := redisClient.Get(resultName).Bytes(); err != nil && err != redis.Nil {
 			return http.StatusInternalServerError, err, nil
 		} else if err != redis.Nil {
 			c := cachedResponse{}
 			json.Unmarshal(b, &c)
-			return c.StatusCode, c.Err, c.Output
+			var err error = nil
+			if c.ErrMessage != nil {
+				err = errors.New(*c.ErrMessage)
+			}
+			return c.StatusCode, err, c.Output
 		}
 
+		//it is not a duplicated request.
+		//perform normal processing and then store the result in the redis
 		statusCode, err, output := f(buffer, urlValues, session, userId)
 		outputBytes, _ := json.Marshal(output)
-		c := cachedResponse{StatusCode: statusCode, Err: err, Output: outputBytes}
+		c := cachedResponse{StatusCode: statusCode, Output: outputBytes}
+		if err != nil {
+			s := err.Error()
+			c.ErrMessage = &s
+		}
 		b, _ := json.Marshal(c)
 		redisClient.Set(resultName, b, DOUBLE_DETECTION_PERIOD).Result()
 
@@ -101,9 +114,45 @@ func DoublePostIntercept(f PostHandler) HandlerWithTx {
 
 func DoubleDeleteIntercept(f DeleteHandler) HandlerWithTx {
 	return func(r *http.Request, urlValues map[string]string, session *xorm.Session, userId string) (int, error, interface{}) {
-		//FIXME: implement the double request checking
+		//the key is request userId + requestUrl + method + hash of request body
+		lockName := userId + `-` + r.URL.Path + `-` + r.Method + `-LOCK`
+		resultName := userId + `-` + r.URL.Path + `-` + r.Method + `-RESULT`
 
-		return f(urlValues, session, userId)
+		//ensure that in case of double request, only one thread can get processed
+		if ok, err := lock.AcquireLock(lockName, MAX_PROCESS_TIME, MAX_PROCESS_TIME); err != nil {
+			return http.StatusInternalServerError, err, nil
+		} else if ok == false {
+			return http.StatusConflict, err, nil
+		}
+		defer lock.ReleaseLock(lockName)
+
+		//after entering the critical zone, check if it is a duplicated request
+		//if yes, then use the previous output stored in redis, and then do nothing
+		if b, err := redisClient.Get(resultName).Bytes(); err != nil && err != redis.Nil {
+			return http.StatusInternalServerError, err, nil
+		} else if err != redis.Nil {
+			c := cachedResponse{}
+			json.Unmarshal(b, &c)
+			var err error = nil
+			if c.ErrMessage != nil {
+				err = errors.New(*c.ErrMessage)
+			}
+			return c.StatusCode, err, c.Output
+		}
+
+		//it is not a duplicated request.
+		//perform normal processing and then store the result in the redis
+		statusCode, err, output := f(urlValues, session, userId)
+		outputBytes, _ := json.Marshal(output)
+		c := cachedResponse{StatusCode: statusCode, Output: outputBytes}
+		if err != nil {
+			s := err.Error()
+			c.ErrMessage = &s
+		}
+		b, _ := json.Marshal(c)
+		redisClient.Set(resultName, b, DOUBLE_DETECTION_PERIOD).Result()
+
+		return statusCode, err, output
 	}
 }
 
