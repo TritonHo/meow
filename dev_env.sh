@@ -8,3 +8,6 @@ export DB_MAX_OPEN_CONN=20
 
 export REDIS_ENDPOINT='localhost:6379'
 export REDIS_POOL_SIZE=100
+
+export JWT_RSA_KEY_LOCATION='/opt/framework-demo/private_key.pem'
+export JWT_OLD_RSA_KEY_LOCATION=''

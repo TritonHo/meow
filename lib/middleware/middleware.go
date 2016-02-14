@@ -3,6 +3,7 @@ package middleware
 import (
 	"bytes"
 	"crypto/md5"
+	"crypto/rsa"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -26,11 +27,17 @@ const (
 var (
 	db          *xorm.Engine
 	redisClient *redis.Client
+
+	currentKey *rsa.PrivateKey
+	oldKey     *rsa.PrivateKey
 )
 
-func Init(database *xorm.Engine, client *redis.Client) {
+func Init(database *xorm.Engine, client *redis.Client, current *rsa.PrivateKey, old *rsa.PrivateKey) {
 	db = database
 	redisClient = client
+
+	currentKey = current
+	oldKey = old
 }
 
 type HandlerWithTx func(r *http.Request, urlValues map[string]string, session *xorm.Session, userId string) (statusCode int, err error, output interface{})
@@ -213,7 +220,6 @@ func Auth(f Handler) http.HandlerFunc {
 // a middleware for user authorization which implmented by JWT.
 // Please see the documentation: http://jwt.io/
 func jwtAuth(req *http.Request) (userId string, statusCode int, newTokenString string, err error) {
-	//func Auth(res http.ResponseWriter, req *http.Request, next http.HandlerFunc) {
 	// parse and vertify the token string
 	tokenString := req.Header.Get("Authorization")
 	if len(tokenString) == 0 {
@@ -221,31 +227,31 @@ func jwtAuth(req *http.Request) (userId string, statusCode int, newTokenString s
 	}
 
 	token, err := jwt.Parse(tokenString, func(t *jwt.Token) (interface{}, error) {
-		// make sure the JWT token is using RS256
-		if t.Method.Alg() != "HS256" {
+		// make sure the JWT token is using RSA alg
+		if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
 			return nil, errors.New("Unexpected signing method")
 		}
-		//FIXME: use RSA to verify the jwt
-		return []byte(`abc123`), nil
+
+		switch ts := t.Claims["exp"].(type) {
+		default:
+			return nil, errors.New("Improper JWT Token")
+		case float64:
+			timestamp := time.Unix(int64(ts), 0)
+			if timestamp.Before(time.Now()) {
+				return nil, errors.New("JWT Token has expired")
+			}
+		}
+
+		return &currentKey.PublicKey, nil
 	})
 	if err != nil {
-		return ``, http.StatusUnauthorized, "", nil
+		return ``, http.StatusUnauthorized, "", err
 	}
 
 	if token.Valid == false { // make sure token is Valid
 		return ``, http.StatusUnauthorized, "", errors.New("Wrong jwt token")
 	}
-	/*
-		switch timeStamp := token.Claims["exp"].(type) {
-		default:
-			return nil, http.StatusUnauthorized, "", errors.New("Improper JWT Token")
-		case float64:
-			timestamp := time.Unix(int64(timeStamp), 0)
-			if timestamp.Before(time.Now()) {
-				return nil, http.StatusUnauthorized, "", errors.New("JWT Token has expired")
-			}
-		}
-	*/
+
 	if s, ok := token.Claims["userId"].(string); !ok {
 		return ``, http.StatusUnauthorized, "", errors.New("Improper JWT Token")
 	} else {
@@ -255,7 +261,7 @@ func jwtAuth(req *http.Request) (userId string, statusCode int, newTokenString s
 	// let's update the timestamp to up their use time ;)
 	token.Claims["exp"] = time.Now().Add(time.Hour * 72).Unix()
 	//FIXME: use RSA to protect the hash
-	tokenString, _ = token.SignedString([]byte(`abc123`))
+	tokenString, _ = token.SignedString(currentKey)
 	if err != nil {
 		return ``, http.StatusInternalServerError, "", errors.New("Problems signing JWT Token")
 	}

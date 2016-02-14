@@ -1,12 +1,15 @@
 package main
 
 import (
+	"crypto/rsa"
 	"fmt"
-	"log"
+	"io/ioutil"
 	"net/http"
 	"runtime"
 	"strconv"
 	"time"
+
+	"log"
 
 	"framework-demo/handler"
 	"framework-demo/lib/config"
@@ -83,27 +86,48 @@ func initDependency() {
 	}
 	redisClient := redis.NewClient(&redisOptions)
 
+	//load the RSA key from the file system, for the jwt auth
+	var err1 error
+	var currentKey *rsa.PrivateKey = nil
+	var oldKey *rsa.PrivateKey = nil
+
+	currentKeyBytes, _ := ioutil.ReadFile(config.GetStr(setting.JWT_RSA_KEY_LOCATION))
+	currentKey, err1 = jwt.ParseRSAPrivateKeyFromPEM(currentKeyBytes)
+	if err1 != nil {
+		log.Panic(err1)
+	}
+	if location := config.GetStr(setting.JWT_OLD_RSA_KEY_LOCATION); location != `` {
+		oldKeyBytes, _ := ioutil.ReadFile(location)
+		oldKey, err1 = jwt.ParseRSAPrivateKeyFromPEM(oldKeyBytes)
+		if err1 != nil {
+			log.Panic(err1)
+		}
+	}
+
 	httputil.Init(xormCore.SnakeMapper{})
 
 	//add the db dependency to middleware module
-	middleware.Init(db, redisClient)
+	middleware.Init(db, redisClient, currentKey, oldKey)
 
 	//add the redis dependency to lock module
 	lock.Init(redisClient)
 }
 
 func showDevAuth() {
+	currentKeyBytes, _ := ioutil.ReadFile(config.GetStr(setting.JWT_RSA_KEY_LOCATION))
+	currentKey, err1 := jwt.ParseRSAPrivateKeyFromPEM(currentKeyBytes)
+	if err1 != nil {
+		log.Panic(err1)
+	}
 
-	//FIXME switch to RS256
-	secret := `abc123`
-	token := jwt.New(jwt.SigningMethodHS256)
+	token := jwt.New(jwt.SigningMethodRS512)
 
 	// Set some claims
 	token.Claims["userId"] = `eeee1df4-9fae-4e32-98c1-88f850a00001`
 	token.Claims["exp"] = time.Now().Add(time.Minute * 60 * 24 * 30).Unix()
 
 	// Sign and get the complete encoded token as a string
-	tokenString, _ := token.SignedString([]byte(secret))
+	tokenString, _ := token.SignedString(currentKey)
 	fmt.Println("Please put the following string into http 'Authorization' header:")
 	fmt.Println(tokenString)
 }
