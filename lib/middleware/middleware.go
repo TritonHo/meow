@@ -11,7 +11,9 @@ import (
 	"net/http"
 	"time"
 
+	"framework-demo/lib/config"
 	"framework-demo/lib/lock"
+	"framework-demo/setting"
 
 	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/go-xorm/xorm"
@@ -259,8 +261,8 @@ func jwtAuth(req *http.Request) (userId string, statusCode int, newTokenString s
 	}
 
 	// let's update the timestamp to up their use time ;)
-	token.Claims["exp"] = time.Now().Add(time.Hour * 72).Unix()
-	//FIXME: use RSA to protect the hash
+	lifetime := config.GetInt(setting.JWT_TOKEN_LIFETIME)
+	token.Claims["exp"] = time.Now().Add(time.Minute * time.Duration(lifetime)).Unix()
 	tokenString, _ = token.SignedString(currentKey)
 	if err != nil {
 		return ``, http.StatusInternalServerError, "", errors.New("Problems signing JWT Token")
