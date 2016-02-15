@@ -6,7 +6,7 @@ type User struct {
 	Id string `xorm:"pk" json:"id" validate:"fixed"`
 
 	Email          string `json:"email" validate:"fixed"`
-	PasswordDigest string `xorm:"password_digest" json:"-"`
+	PasswordDigest string `json:"-"`
 
 	FirstName string `json:"firstName"`
 	LastName  string `json:"lastName"`

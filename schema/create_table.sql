@@ -21,7 +21,7 @@ create table users
 (
 	id uuid,
 
-	email character varying(1000) not null,
+	email character varying(200) not null,
 	password_digest character varying(1000) not null,
 
 	first_name character varying(255) null,
@@ -31,4 +31,4 @@ create table users
 	update_time timestamp with time zone not null default current_timestamp,
 	CONSTRAINT "users_pk" PRIMARY KEY (id)
 );
-
+ALTER TABLE users ADD CONSTRAINT users_u1 UNIQUE (email);

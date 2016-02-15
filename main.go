@@ -12,6 +12,7 @@ import (
 	"log"
 
 	"framework-demo/handler"
+	"framework-demo/lib/auth"
 	"framework-demo/lib/config"
 	"framework-demo/lib/httputil"
 	"framework-demo/lib/lock"
@@ -34,6 +35,10 @@ func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	router := mux.NewRouter()
+
+	router.HandleFunc("/v1/auth", middleware.Plain(handler.Login)).Methods("POST")
+
+	router.HandleFunc("/v1/user", middleware.Plain(handler.UserCreate)).Methods("POST")
 
 	router.HandleFunc("/v1/cats/{catId}", middleware.Auth(handler.CatGetOne)).Methods("GET")
 	router.HandleFunc("/v1/cats/{catId}", middleware.AuthAndTx(handler.CatUpdate)).Methods("PUT")
@@ -103,11 +108,13 @@ func initDependency() {
 			log.Panic(err1)
 		}
 	}
+	lifetime := time.Duration(config.GetInt(setting.JWT_TOKEN_LIFETIME)) * time.Minute
+	auth.Init(currentKey, oldKey, lifetime)
 
 	httputil.Init(xormCore.SnakeMapper{})
 
 	//add the db dependency to middleware module
-	middleware.Init(db, redisClient, currentKey, oldKey)
+	middleware.Init(db, redisClient)
 
 	//add the redis dependency to lock module
 	lock.Init(redisClient)

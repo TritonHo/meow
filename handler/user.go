@@ -1,17 +1,17 @@
 package handler
 
 import (
-	//"errors"
 	//	"log"
 	"net/http"
-	//	"strings"
 
-	//"framework-demo/lib/httputil"
+	"framework-demo/lib/auth"
+	"framework-demo/lib/httputil"
+	"framework-demo/lib/middleware"
 	"framework-demo/model"
 
 	"github.com/go-xorm/xorm"
-
-	//"golang.org/x/crypto/bcrypt"
+	"github.com/satori/go.uuid"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func UserGetOne(res http.ResponseWriter, req *http.Request, urlValues map[string]string, session *xorm.Session, userId string) (error, int, interface{}) {
@@ -43,3 +43,50 @@ func UserUpdate(w http.ResponseWriter, r *http.Request, urlValues map[string]str
 	}
 }
 */
+
+func UserCreate(w http.ResponseWriter, r *http.Request, urlValues map[string]string, db *xorm.Engine) {
+	user := struct {
+		model.User `xorm:"extends"`
+		Password   string `xorm:"-" json:"password" validate:"required"`
+	}{}
+
+	if err := httputil.Bind(r.Body, &user); err != nil {
+		middleware.Send(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	user.Id = uuid.NewV4().String()
+
+	if digest, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost); err != nil {
+		middleware.Send(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	} else {
+		user.PasswordDigest = string(digest)
+	}
+
+	session := db.NewSession()
+	if err := session.Begin(); err != nil {
+		middleware.Send(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer session.Close()
+
+	if statusCode, err := createRecord(&user, session); err != nil {
+		middleware.Send(w, statusCode, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if err := session.Commit(); err != nil {
+		middleware.Send(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if newToken, err := auth.Sign(user.Id); err != nil {
+		middleware.Send(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	} else {
+		// update JWT Token
+		w.Header().Add("Authorization", newToken)
+		//allow CORS
+		w.Header().Set("Access-Control-Expose-Headers", "Authorization")
+		middleware.Send(w, http.StatusOK, map[string]string{"userId": user.Id})
+	}
+}
