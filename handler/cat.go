@@ -4,8 +4,8 @@ import (
 	"io"
 	"net/http"
 
-	"framework-demo/lib/httputil"
-	"framework-demo/model"
+	"meow/lib/httputil"
+	"meow/model"
 
 	"github.com/go-xorm/xorm"
 	"github.com/satori/go.uuid"

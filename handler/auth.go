@@ -5,10 +5,10 @@ import (
 	//	"log"
 	"net/http"
 
-	"framework-demo/lib/auth"
-	"framework-demo/lib/httputil"
-	"framework-demo/lib/middleware"
-	"framework-demo/model"
+	"meow/lib/auth"
+	"meow/lib/httputil"
+	"meow/lib/middleware"
+	"meow/model"
 
 	"github.com/go-xorm/xorm"
 	"golang.org/x/crypto/bcrypt"

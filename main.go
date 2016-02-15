@@ -11,13 +11,13 @@ import (
 
 	"log"
 
-	"framework-demo/handler"
-	"framework-demo/lib/auth"
-	"framework-demo/lib/config"
-	"framework-demo/lib/httputil"
-	"framework-demo/lib/lock"
-	"framework-demo/lib/middleware"
-	"framework-demo/setting"
+	"meow/handler"
+	"meow/lib/auth"
+	"meow/lib/config"
+	"meow/lib/httputil"
+	"meow/lib/lock"
+	"meow/lib/middleware"
+	"meow/setting"
 
 	jwt "github.com/dgrijalva/jwt-go"
 	xormCore "github.com/go-xorm/core"

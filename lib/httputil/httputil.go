@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"framework-demo/lib/validate"
+	"meow/lib/validate"
 
 	xormCore "github.com/go-xorm/core"
 )

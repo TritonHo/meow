@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"time"
 
-	"framework-demo/lib/auth"
-	"framework-demo/lib/lock"
+	"meow/lib/auth"
+	"meow/lib/lock"
 
 	"github.com/go-xorm/xorm"
 	"github.com/gorilla/mux"
