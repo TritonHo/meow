@@ -24,4 +24,11 @@ Step 3: Create the table and foreign Key in the database.
 Step 4: Grant table privilege to the users.
 
 	Run the following command:
+		psql -h <machine_name> -U meow_admin meow_db -f create_audit_table.sql
+		psql -h <machine_name> -U meow_admin meow_db -f create_audit_trigger.sql
+
+
+Step 5: Grant table privilege to the users.
+
+	Run the following command:
 		psql -h <machine_name> -U meow_admin meow_db -f grant_table_privilege.sql
