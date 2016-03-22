@@ -3,14 +3,14 @@ package main
 import (
 	"crypto/rsa"
 	"fmt"
+	jwt "github.com/dgrijalva/jwt-go"
+	xormCore "github.com/go-xorm/core"
+	"github.com/go-xorm/xorm"
+	"github.com/gorilla/mux"
+	_ "github.com/lib/pq"
+	redis "gopkg.in/redis.v3"
 	"io/ioutil"
-	"net/http"
-	"runtime"
-	"strconv"
-	"time"
-
 	"log"
-
 	"meow/handler"
 	"meow/lib/auth"
 	"meow/lib/config"
@@ -18,18 +18,20 @@ import (
 	"meow/lib/lock"
 	"meow/lib/middleware"
 	"meow/setting"
-
-	jwt "github.com/dgrijalva/jwt-go"
-	xormCore "github.com/go-xorm/core"
-	"github.com/go-xorm/xorm"
-	"github.com/gorilla/mux"
-	_ "github.com/lib/pq"
-	redis "gopkg.in/redis.v3"
+	"net/http"
+	"os"
+	"runtime"
+	"strconv"
+	"time"
 )
 
 func main() {
 	showDevAuth()
 	initDependency()
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
 
 	//in old go compiler, it is a must to enable multithread processing
 	runtime.GOMAXPROCS(runtime.NumCPU())
@@ -47,7 +49,7 @@ func main() {
 
 	http.Handle("/", router)
 	s := &http.Server{
-		Addr:         ":8080",
+		Addr:         ":" + port,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}
